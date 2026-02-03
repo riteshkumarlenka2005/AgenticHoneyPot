@@ -1,0 +1,1 @@
+"""Mock scammer service package."""

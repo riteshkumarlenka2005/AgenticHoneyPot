@@ -11,7 +11,7 @@ class ScamDetector:
     
     def __init__(self):
         """Initialize the scam detector."""
-        self.threshold = 0.6
+        self.threshold = 0.3
     
     async def detect_scam(self, message: str, conversation_history: Optional[list] = None) -> Dict:
         """
