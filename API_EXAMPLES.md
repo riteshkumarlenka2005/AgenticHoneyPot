@@ -356,3 +356,164 @@ ws://localhost:8000/ws/conversations
 ```
 
 This is planned for future implementation.
+
+## WebSocket Real-Time Updates
+
+### Connect to WebSocket
+
+```javascript
+const ws = new WebSocket('ws://localhost:8000/api/v1/ws');
+
+ws.onopen = () => {
+  console.log('Connected to honeypot WebSocket');
+  
+  // Subscribe to a specific conversation
+  ws.send(JSON.stringify({
+    action: 'subscribe',
+    conversation_id: 'abc-123-def-456'
+  }));
+};
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  console.log('Received:', data);
+  
+  // Handle different event types
+  if (data.type === 'new_message') {
+    console.log('New message in conversation:', data.conversation_id);
+  } else if (data.type === 'intelligence_extracted') {
+    console.log('New intelligence extracted:', data.data);
+  } else if (data.type === 'analytics_update') {
+    console.log('Analytics updated');
+  }
+};
+```
+
+## Intelligence Export
+
+### Export as JSON
+
+```bash
+curl http://localhost:8000/api/v1/intelligence/export?format=json
+```
+
+### Export as CSV
+
+```bash
+curl http://localhost:8000/api/v1/intelligence/export?format=csv \
+  -o intelligence.csv
+```
+
+### Export as STIX 2.1
+
+```bash
+curl http://localhost:8000/api/v1/intelligence/export?format=stix \
+  -o intelligence.stix.json
+```
+
+Response (STIX 2.1 Bundle):
+```json
+{
+  "type": "bundle",
+  "id": "bundle--...",
+  "objects": [
+    {
+      "type": "identity",
+      "id": "identity--...",
+      "name": "Agentic HoneyPot System",
+      "identity_class": "system"
+    },
+    {
+      "type": "indicator",
+      "id": "indicator--...",
+      "pattern": "[email-addr:value = 'scammer@example.com']",
+      "pattern_type": "stix",
+      "indicator_types": ["malicious-activity", "attribution"]
+    }
+  ]
+}
+```
+
+## Validate Intelligence
+
+Mark intelligence as validated:
+
+```bash
+curl -X PATCH http://localhost:8000/api/v1/intelligence/{intelligence_id}/validate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "validated": true
+  }'
+```
+
+## Conversation Details
+
+Get full conversation with all messages:
+
+```bash
+curl http://localhost:8000/api/v1/conversations/{conversation_id}
+```
+
+Response:
+```json
+{
+  "id": "abc-123-def-456",
+  "scammer_identifier": "test-scammer",
+  "status": "active",
+  "scam_type": "lottery_prize",
+  "detection_confidence": 0.95,
+  "started_at": "2024-02-04T12:00:00Z",
+  "last_activity": "2024-02-04T12:30:00Z",
+  "message_count": 10,
+  "duration_seconds": 1800,
+  "messages": [
+    {
+      "id": "msg-1",
+      "sender_type": "scammer",
+      "content": "Congratulations! You won...",
+      "timestamp": "2024-02-04T12:00:00Z"
+    }
+  ],
+  "intelligence_extracted": {
+    "upi_id": 2,
+    "bank_account": 1,
+    "phone": 1,
+    "url": 3,
+    "email": 0
+  }
+}
+```
+
+## Analytics Endpoints
+
+### Get IDR Metrics
+
+The analytics overview now includes IDR (Information Disclosure Rate) and IDS (Information Disclosure Speed):
+
+```bash
+curl http://localhost:8000/api/v1/analytics/overview
+```
+
+### Timeline Data
+
+Get hourly breakdown of scam detections and intelligence extraction:
+
+```bash
+curl http://localhost:8000/api/v1/analytics/timeline?hours=24
+```
+
+## LLM Provider Configuration
+
+The system supports multiple LLM providers. Configure via environment variables:
+
+```bash
+# Use OpenAI (default)
+export OPENAI_API_KEY=sk-...
+export OPENAI_MODEL=gpt-4-turbo-preview
+
+# Or use Google Gemini
+export GOOGLE_API_KEY=...
+```
+
+The system will auto-detect which provider to use based on available API keys.
+

@@ -1,8 +1,14 @@
 """Conversations API routes."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
+from uuid import UUID
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.database import get_db
+from app.services.database_service import ConversationService, MessageService
+from app.models.conversation import ConversationStatus
 
 router = APIRouter()
 
@@ -17,6 +23,9 @@ class ConversationListItem(BaseModel):
     started_at: datetime
     message_count: int
     duration_seconds: int
+    
+    class Config:
+        from_attributes = True
 
 
 class Message(BaseModel):
@@ -25,6 +34,9 @@ class Message(BaseModel):
     sender_type: str
     content: str
     timestamp: datetime
+    
+    class Config:
+        from_attributes = True
 
 
 class ConversationDetail(BaseModel):
@@ -42,6 +54,9 @@ class ConversationDetail(BaseModel):
     messages: List[Message] = []
     intelligence_extracted: dict = {}
     manipulation_tactics: List[str] = []
+    
+    class Config:
+        from_attributes = True
 
 
 @router.get("", response_model=List[ConversationListItem])
@@ -49,7 +64,8 @@ async def list_conversations(
     status: Optional[str] = None,
     scam_type: Optional[str] = None,
     limit: int = 50,
-    offset: int = 0
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db)
 ):
     """
     List all conversations with optional filtering.
@@ -60,70 +76,90 @@ async def list_conversations(
     - limit: Maximum number of results
     - offset: Pagination offset
     """
-    # Import here to avoid circular dependency
-    from app.api.routes.messages import active_conversations
+    # Convert status string to enum if provided
+    status_enum = None
+    if status:
+        try:
+            status_enum = ConversationStatus(status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid status: {status}")
     
-    conversations = []
-    for conv_id, conv_data in active_conversations.items():
-        state = conv_data["state"]
+    conversations = await ConversationService.list_conversations(
+        db,
+        status=status_enum,
+        scam_type=scam_type,
+        limit=limit,
+        offset=offset
+    )
+    
+    result = []
+    for conv in conversations:
+        # Count messages
+        messages = await MessageService.get_by_conversation(db, conv.id)
         
-        # Apply filters
-        if status and state.status.value != status:
-            continue
-        if scam_type and state.scam_type != scam_type:
-            continue
-        
-        conversations.append(ConversationListItem(
-            id=str(state.conversation_id),
-            scammer_identifier=state.scammer_identifier,
-            status=state.status.value,
-            scam_type=state.scam_type,
-            detection_confidence=state.detection_confidence,
-            started_at=state.started_at,
-            message_count=state.message_count,
-            duration_seconds=state.get_duration()
+        result.append(ConversationListItem(
+            id=str(conv.id),
+            scammer_identifier=conv.scammer_identifier,
+            status=conv.status.value,
+            scam_type=conv.scam_type or "unknown",
+            detection_confidence=conv.detection_confidence or 0.0,
+            started_at=conv.started_at,
+            message_count=len(messages),
+            duration_seconds=conv.total_duration_seconds or 0
         ))
     
-    # Sort by most recent first
-    conversations.sort(key=lambda x: x.started_at, reverse=True)
-    
-    return conversations[offset:offset + limit]
+    return result
 
 
 @router.get("/{conversation_id}", response_model=ConversationDetail)
-async def get_conversation(conversation_id: str):
+async def get_conversation(
+    conversation_id: str,
+    db: AsyncSession = Depends(get_db)
+):
     """Get detailed information about a specific conversation."""
-    from app.api.routes.messages import active_conversations
+    try:
+        conversation = await ConversationService.get_by_id(db, UUID(conversation_id))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid conversation ID format")
     
-    if conversation_id not in active_conversations:
+    if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
-    conv_data = active_conversations[conversation_id]
-    state = conv_data["state"]
-    memory = conv_data["memory"]
+    # Get messages
+    messages = await MessageService.get_by_conversation(db, conversation.id)
     
     # Build message list
-    messages = []
-    for idx, msg in enumerate(memory.get_full_history()):
-        messages.append(Message(
-            id=f"{conversation_id}-{idx}",
-            sender_type=msg["sender_type"],
-            content=msg["content"],
-            timestamp=datetime.utcnow()  # Would use actual timestamps in production
-        ))
+    message_list = [
+        Message(
+            id=str(msg.id),
+            sender_type=msg.sender_type.value,
+            content=msg.content,
+            timestamp=msg.timestamp
+        )
+        for msg in messages
+    ]
+    
+    # Count intelligence extracted
+    intelligence_count = {
+        "upi_id": len([i for i in conversation.intelligence if i.artifact_type.value == "upi_id"]),
+        "bank_account": len([i for i in conversation.intelligence if i.artifact_type.value == "bank_account"]),
+        "phone": len([i for i in conversation.intelligence if i.artifact_type.value == "phone"]),
+        "url": len([i for i in conversation.intelligence if i.artifact_type.value == "url"]),
+        "email": len([i for i in conversation.intelligence if i.artifact_type.value == "email"]),
+    }
     
     return ConversationDetail(
-        id=str(state.conversation_id),
-        scammer_identifier=state.scammer_identifier,
-        status=state.status.value,
-        scam_type=state.scam_type,
-        detection_confidence=state.detection_confidence,
-        started_at=state.started_at,
-        last_activity=state.last_activity,
-        message_count=state.message_count,
-        duration_seconds=state.get_duration(),
-        persona=state.persona,
-        messages=messages,
-        intelligence_extracted=state.intelligence_extracted,
-        manipulation_tactics=state.manipulation_tactics
+        id=str(conversation.id),
+        scammer_identifier=conversation.scammer_identifier,
+        status=conversation.status.value,
+        scam_type=conversation.scam_type or "unknown",
+        detection_confidence=conversation.detection_confidence or 0.0,
+        started_at=conversation.started_at,
+        last_activity=conversation.last_activity or conversation.started_at,
+        message_count=len(messages),
+        duration_seconds=conversation.total_duration_seconds or 0,
+        persona=conversation.extra_data.get("persona") if conversation.extra_data else None,
+        messages=message_list,
+        intelligence_extracted=intelligence_count,
+        manipulation_tactics=conversation.extra_data.get("manipulation_tactics", []) if conversation.extra_data else []
     )

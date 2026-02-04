@@ -1,8 +1,14 @@
 """Analytics API routes."""
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from typing import List, Dict
 from datetime import datetime, timedelta
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.database import get_db
+from app.models.conversation import Conversation, ConversationStatus
+from app.models.intelligence import Intelligence
 
 router = APIRouter()
 
@@ -30,7 +36,7 @@ class TimeSeriesPoint(BaseModel):
 
 
 @router.get("/overview", response_model=OverviewStats)
-async def get_overview_stats():
+async def get_overview_stats(db: AsyncSession = Depends(get_db)):
     """
     Get dashboard overview statistics.
     
@@ -40,30 +46,31 @@ async def get_overview_stats():
     - intelligence_extracted: Total intelligence artifacts extracted
     - time_wasted_seconds: Total time wasted by scammers
     """
-    from app.api.routes.messages import active_conversations
+    # Count active conversations
+    active_result = await db.execute(
+        select(func.count(Conversation.id))
+        .where(Conversation.status == ConversationStatus.ACTIVE)
+    )
+    active_count = active_result.scalar() or 0
     
-    active_count = 0
-    scams_detected = 0
-    intelligence_count = 0
-    total_time_wasted = 0
+    # Count scams detected (confidence >= 0.5)
+    scams_result = await db.execute(
+        select(func.count(Conversation.id))
+        .where(Conversation.detection_confidence >= 0.5)
+    )
+    scams_detected = scams_result.scalar() or 0
     
-    for conv_id, conv_data in active_conversations.items():
-        state = conv_data["state"]
-        
-        # Count active conversations
-        if state.status.value == "active":
-            active_count += 1
-        
-        # Count scams detected
-        if state.detection_confidence >= 0.5:
-            scams_detected += 1
-        
-        # Count intelligence artifacts
-        for intel_type, values in state.intelligence_extracted.items():
-            intelligence_count += len(values)
-        
-        # Sum time wasted
-        total_time_wasted += state.get_duration()
+    # Count intelligence extracted
+    intel_result = await db.execute(
+        select(func.count(Intelligence.id))
+    )
+    intelligence_count = intel_result.scalar() or 0
+    
+    # Sum time wasted
+    time_result = await db.execute(
+        select(func.sum(Conversation.total_duration_seconds))
+    )
+    total_time_wasted = time_result.scalar() or 0
     
     return OverviewStats(
         active_conversations=active_count,
@@ -74,31 +81,32 @@ async def get_overview_stats():
 
 
 @router.get("/scam-types", response_model=List[ScamTypeDistribution])
-async def get_scam_type_distribution():
+async def get_scam_type_distribution(db: AsyncSession = Depends(get_db)):
     """
     Get distribution of scam types.
     
     Returns a list of scam types with their counts and percentages.
     """
-    from app.api.routes.messages import active_conversations
+    # Get scam type counts
+    result = await db.execute(
+        select(
+            Conversation.scam_type,
+            func.count(Conversation.id).label('count')
+        )
+        .where(Conversation.detection_confidence >= 0.5)
+        .where(Conversation.scam_type.isnot(None))
+        .group_by(Conversation.scam_type)
+    )
     
-    scam_type_counts: Dict[str, int] = {}
-    total_scams = 0
-    
-    for conv_id, conv_data in active_conversations.items():
-        state = conv_data["state"]
-        
-        if state.detection_confidence >= 0.5:
-            scam_type = state.scam_type
-            scam_type_counts[scam_type] = scam_type_counts.get(scam_type, 0) + 1
-            total_scams += 1
+    scam_type_counts = result.all()
+    total_scams = sum(count for _, count in scam_type_counts)
     
     # Calculate percentages
     distribution = []
-    for scam_type, count in scam_type_counts.items():
+    for scam_type, count in scam_type_counts:
         percentage = (count / total_scams * 100) if total_scams > 0 else 0
         distribution.append(ScamTypeDistribution(
-            scam_type=scam_type,
+            scam_type=scam_type or "unknown",
             count=count,
             percentage=round(percentage, 2)
         ))
@@ -110,7 +118,10 @@ async def get_scam_type_distribution():
 
 
 @router.get("/timeline", response_model=List[TimeSeriesPoint])
-async def get_timeline_data(hours: int = 24):
+async def get_timeline_data(
+    hours: int = 24,
+    db: AsyncSession = Depends(get_db)
+):
     """
     Get time series data for the last N hours.
     
@@ -119,8 +130,6 @@ async def get_timeline_data(hours: int = 24):
     
     Returns hourly data points with scam detections and intelligence extracted.
     """
-    from app.api.routes.messages import active_conversations
-    
     # Generate hourly buckets
     now = datetime.utcnow()
     timeline = []
@@ -129,19 +138,22 @@ async def get_timeline_data(hours: int = 24):
         hour_start = now - timedelta(hours=hours - i)
         hour_end = hour_start + timedelta(hours=1)
         
-        scams_in_hour = 0
-        intelligence_in_hour = 0
+        # Count scams in this hour
+        scams_result = await db.execute(
+            select(func.count(Conversation.id))
+            .where(Conversation.started_at >= hour_start)
+            .where(Conversation.started_at < hour_end)
+            .where(Conversation.detection_confidence >= 0.5)
+        )
+        scams_in_hour = scams_result.scalar() or 0
         
-        for conv_id, conv_data in active_conversations.items():
-            state = conv_data["state"]
-            
-            # Check if conversation started in this hour
-            if hour_start <= state.started_at < hour_end:
-                if state.detection_confidence >= 0.5:
-                    scams_in_hour += 1
-                
-                for intel_type, values in state.intelligence_extracted.items():
-                    intelligence_in_hour += len(values)
+        # Count intelligence in this hour
+        intel_result = await db.execute(
+            select(func.count(Intelligence.id))
+            .where(Intelligence.extracted_at >= hour_start)
+            .where(Intelligence.extracted_at < hour_end)
+        )
+        intelligence_in_hour = intel_result.scalar() or 0
         
         timeline.append(TimeSeriesPoint(
             timestamp=hour_start,

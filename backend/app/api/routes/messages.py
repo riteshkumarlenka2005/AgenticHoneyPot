@@ -1,15 +1,23 @@
 """Messages API routes."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
+from uuid import UUID
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.core.agent.loop import HoneypotAgent
 from app.core.agent.state import ConversationState
 from app.core.agent.memory import AgentMemory
+from app.db.database import get_db
+from app.services.database_service import ConversationService, MessageService, IntelligenceService
+from app.models.message import SenderType
+from app.models.intelligence import ArtifactType
 
 router = APIRouter()
 
-# In-memory storage for active conversations (replace with database in production)
-active_conversations = {}
+# In-memory storage for active agent states (agent state is still in-memory for now)
+# TODO: Move agent state to Redis cache
+active_agent_states = {}
 
 
 class IncomingMessage(BaseModel):
@@ -30,7 +38,10 @@ class MessageResponse(BaseModel):
 
 
 @router.post("/incoming", response_model=MessageResponse)
-async def receive_incoming_message(msg: IncomingMessage):
+async def receive_incoming_message(
+    msg: IncomingMessage,
+    db: AsyncSession = Depends(get_db)
+):
     """
     Receive and process an incoming scam message.
     
@@ -40,23 +51,49 @@ async def receive_incoming_message(msg: IncomingMessage):
     3. Extracts intelligence if present
     4. Updates conversation state
     """
-    # Get or create conversation
+    # Get or create conversation in database
     conversation_id = msg.conversation_id
+    conversation = None
     
-    if not conversation_id or conversation_id not in active_conversations:
-        # Create new conversation
-        state = ConversationState(scammer_identifier=msg.scammer_identifier)
+    if conversation_id:
+        try:
+            conversation = await ConversationService.get_by_id(db, UUID(conversation_id))
+        except (ValueError, AttributeError):
+            pass
+    
+    # Get or create agent state (still in-memory)
+    if conversation and str(conversation.id) in active_agent_states:
+        state = active_agent_states[str(conversation.id)]["state"]
+        memory = active_agent_states[str(conversation.id)]["memory"]
+    else:
+        # Create new conversation in database
+        if not conversation:
+            conversation = await ConversationService.create(
+                db,
+                scammer_identifier=msg.scammer_identifier
+            )
+            await db.commit()
+        
+        # Create new agent state
+        state = ConversationState(
+            scammer_identifier=msg.scammer_identifier,
+            conversation_id=conversation.id
+        )
         memory = AgentMemory()
-        conversation_id = str(state.conversation_id)
-        active_conversations[conversation_id] = {
+        active_agent_states[str(conversation.id)] = {
             "state": state,
             "memory": memory
         }
-    else:
-        # Get existing conversation
-        conv = active_conversations[conversation_id]
-        state = conv["state"]
-        memory = conv["memory"]
+    
+    conversation_id = str(conversation.id)
+    
+    # Store scammer message in database
+    await MessageService.create(
+        db,
+        conversation_id=conversation.id,
+        sender_type=SenderType.SCAMMER,
+        content=msg.message
+    )
     
     # Add scammer message to memory
     memory.add_message("scammer", msg.message)
@@ -66,10 +103,46 @@ async def receive_incoming_message(msg: IncomingMessage):
     agent = HoneypotAgent()
     result = await agent.process_incoming_message(msg.message, state, memory)
     
-    # Add honeypot response to memory
+    # Store honeypot response in database
     if result.get("response"):
+        await MessageService.create(
+            db,
+            conversation_id=conversation.id,
+            sender_type=SenderType.HONEYPOT,
+            content=result["response"],
+            analysis=result.get("perception", {})
+        )
         memory.add_message("honeypot", result["response"])
         state.add_message()
+    
+    # Store extracted intelligence
+    if "extraction" in result and "artifacts" in result["extraction"]:
+        for artifact in result["extraction"]["artifacts"]:
+            try:
+                artifact_type = ArtifactType(artifact["type"])
+                await IntelligenceService.create(
+                    db,
+                    conversation_id=conversation.id,
+                    artifact_type=artifact_type,
+                    value=artifact["value"],
+                    confidence=artifact.get("confidence", 0.0)
+                )
+            except (ValueError, KeyError):
+                continue
+    
+    # Update conversation metadata
+    await ConversationService.update_status(
+        db,
+        conversation_id=conversation.id,
+        status=state.status
+    )
+    await ConversationService.update_duration(
+        db,
+        conversation_id=conversation.id,
+        duration_seconds=state.get_duration()
+    )
+    
+    await db.commit()
     
     # Return response
     return MessageResponse(
