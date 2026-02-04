@@ -1,22 +1,19 @@
-'use client'
-
-import { useRouter } from 'next/navigation'
-import { useEffect } from 'react'
+import { Hero } from '@/components/landing/Hero'
+import { Features } from '@/components/landing/Features'
+import { HowItWorks } from '@/components/landing/HowItWorks'
+import { Stats } from '@/components/landing/Stats'
+import { Testimonials } from '@/components/landing/Testimonials'
+import { CTA } from '@/components/landing/CTA'
 
 export default function Home() {
-  const router = useRouter()
-  
-  useEffect(() => {
-    // Redirect to dashboard
-    router.push('/dashboard')
-  }, [router])
-
   return (
-    <div className="flex items-center justify-center min-h-screen">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Agentic HoneyPot</h1>
-        <p className="text-muted-foreground">Loading...</p>
-      </div>
+    <div>
+      <Hero />
+      <Features />
+      <HowItWorks />
+      <Stats />
+      <Testimonials />
+      <CTA />
     </div>
   )
 }
