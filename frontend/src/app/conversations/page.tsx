@@ -94,7 +94,7 @@ export default function ConversationsPage() {
                         
                         <div className="flex items-center gap-4 text-sm text-muted-foreground">
                           <span>
-                            Type: <span className="text-foreground">{conv.scam_type.replace('_', ' ')}</span>
+                            Type: <span className="text-foreground">{conv.scam_type?.replace('_', ' ') || 'Unknown'}</span>
                           </span>
                           <span>•</span>
                           <span>
