@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
-from app.api.routes import conversations, intelligence, analytics, personas, mock_scammer, messages
+from app.api.routes import conversations, intelligence, analytics, personas, mock_scammer, messages, hitl
 
 # Create FastAPI app
 app = FastAPI(
@@ -27,6 +27,7 @@ app.include_router(intelligence.router, prefix=f"{settings.API_V1_PREFIX}/intell
 app.include_router(analytics.router, prefix=f"{settings.API_V1_PREFIX}/analytics", tags=["analytics"])
 app.include_router(personas.router, prefix=f"{settings.API_V1_PREFIX}/personas", tags=["personas"])
 app.include_router(mock_scammer.router, prefix=f"{settings.API_V1_PREFIX}/mock-scammer", tags=["mock-scammer"])
+app.include_router(hitl.router, prefix=f"{settings.API_V1_PREFIX}/hitl", tags=["hitl"])
 
 
 @app.get("/")
