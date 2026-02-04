@@ -1,6 +1,6 @@
 """Safety guardrails for the honeypot system."""
 import re
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from enum import Enum
 
 
