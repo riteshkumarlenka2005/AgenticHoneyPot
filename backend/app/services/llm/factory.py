@@ -1,5 +1,5 @@
 """LLM provider factory."""
-from typing import Optional
+from typing import Optional, List
 from app.services.llm.base import BaseLLMProvider
 from app.services.llm.openai_provider import OpenAIProvider
 from app.services.llm.gemini_provider import GeminiProvider
@@ -63,7 +63,7 @@ class LLMFactory:
         return "openai"
     
     @staticmethod
-    def get_available_providers() -> list[str]:
+    def get_available_providers() -> List[str]:
         """Get list of available providers."""
         providers = []
         

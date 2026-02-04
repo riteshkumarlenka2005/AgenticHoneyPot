@@ -9,8 +9,8 @@ interface Persona {
   occupation: string;
   location: string;
   communication_style: string;
-  traits: any;
-  backstory: any;
+  traits: Record<string, unknown>;
+  backstory: Record<string, unknown>;
   is_active: boolean;
 }
 

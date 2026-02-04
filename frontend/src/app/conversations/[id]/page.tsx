@@ -21,7 +21,7 @@ interface ConversationDetail {
   last_activity: string;
   message_count: number;
   duration_seconds: number;
-  persona: any;
+  persona: Record<string, unknown> | null;
   messages: Message[];
   intelligence_extracted: {
     upi_id: number;

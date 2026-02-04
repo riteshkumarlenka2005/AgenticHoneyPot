@@ -170,19 +170,6 @@ async def export_intelligence(
             media_type="application/stix+json",
             headers={"Content-Disposition": "attachment; filename=intelligence.stix.json"}
         )
-            headers={"Content-Disposition": "attachment; filename=intelligence.csv"}
-        )
-    elif format == "stix":
-        # Generate STIX 2.1 format
-        from app.services.stix.formatter import stix_formatter
-        
-        stix_data = stix_formatter.intelligence_to_stix(intelligence, conversations_dict)
-        
-        return Response(
-            content=json.dumps(stix_data, indent=2),
-            media_type="application/stix+json",
-            headers={"Content-Disposition": "attachment; filename=intelligence.stix.json"}
-        )
     else:
         # Return JSON
         return intelligence_data
