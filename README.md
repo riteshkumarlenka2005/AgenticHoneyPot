@@ -323,3 +323,166 @@ This software is provided for educational and defensive security research purpos
 ---
 
 **Built with ❤️ for cybersecurity research and scam prevention**
+## 🆕 New Features
+
+### Advanced Backend Capabilities
+
+#### Database & Persistence
+- **Alembic Migrations**: Proper database schema management with async PostgreSQL support
+- **Database Service Layer**: Clean separation of data access with CRUD operations for all models
+- **Persistent Storage**: All conversations, messages, and intelligence stored in database
+
+#### Real-Time Communication
+- **WebSocket Support**: Real-time updates for new messages, intelligence extraction, and analytics
+- **Connection Manager**: Handles multiple WebSocket clients with subscription management
+- **Event Broadcasting**: Targeted updates to conversation subscribers and dashboard
+
+#### Intelligence & Security
+- **STIX 2.1 Export**: Industry-standard threat intelligence format export
+- **Prompt Injection Protection**: Multi-layer guardrails for input/output filtering
+- **Instruction Hierarchy**: Prioritization system ensuring safety rules are never bypassed
+- **RAG Integration**: Policy-based checking using retrieval-augmented generation
+- **Behavioral Context**: WHOIS lookup, URL expansion, and redirect chain tracing
+
+#### LLM Provider Abstraction
+- **Multi-Provider Support**: OpenAI GPT-4 and Google Gemini
+- **Factory Pattern**: Easy switching between providers
+- **Auto-Detection**: Automatically uses available provider based on API keys
+
+#### Advanced Agent Features
+- **Hidden Markov Model**: Scam stage prediction (initial contact → building trust → urgency → payment request)
+- **IDR Metrics**: Information Disclosure Rate and Speed calculations
+- **Efficiency Scoring**: Combined metrics for honeypot effectiveness
+
+#### Caching & Performance
+- **Redis Integration**: Caching layer for frequently accessed data
+- **Cache Invalidation**: Smart invalidation on conversation updates
+- **Async Operations**: Full async support for high concurrency
+
+### Enhanced Frontend Features
+
+#### New Pages
+- **Conversation Detail View** (`/conversations/[id]`): Full message thread with timeline and intelligence sidebar
+- **Persona Management** (`/settings/personas`): Create, edit, and manage AI personas
+- **Intelligence Export UI**: Download intelligence as JSON, CSV, or STIX format
+
+#### Improved Analytics
+- **Real-Time Updates**: WebSocket integration for live dashboard updates
+- **Enhanced Metrics**: IDR, IDS, and efficiency scores
+- **Better Visualizations**: Improved charts for scam type distribution and timeline
+
+### Security Features
+
+#### Input Protection
+- Prompt injection detection and blocking
+- Suspicious pattern recognition
+- Context stuffing prevention
+- Instruction hijacking prevention
+
+#### Output Validation
+- AI self-reference removal
+- Persona consistency checking
+- Credential leak prevention
+- Character break detection
+
+### Export Formats
+
+#### JSON
+Standard JSON export with all intelligence artifacts and conversation metadata.
+
+#### CSV
+Spreadsheet-compatible format for data analysis.
+
+#### STIX 2.1
+Industry-standard Structured Threat Information Expression format including:
+- Threat actors (scammers)
+- Indicators (extracted artifacts)
+- Observed data
+- Attack patterns
+- Comprehensive threat reports
+
+## 📊 Metrics & Analytics
+
+### Information Disclosure Rate (IDR)
+Measures the efficiency of intelligence extraction:
+```
+IDR = (Intelligence Artifacts) / (Total Messages)
+```
+
+### Information Disclosure Speed (IDS)
+Measures how quickly intelligence is extracted:
+```
+IDS = (Intelligence Artifacts) / (Time in Minutes)
+```
+
+### Efficiency Score
+Combined metric incorporating IDR, IDS, and time wasted:
+```
+Efficiency = (IDR × 0.4 + IDS × 0.3 + TimeWasted × 0.3) × 100
+```
+
+## 🔧 Configuration
+
+### Database
+```bash
+DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/honeypot
+```
+
+### Redis
+```bash
+REDIS_URL=redis://localhost:6379/0
+```
+
+### LLM Providers
+```bash
+# OpenAI (default)
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4-turbo-preview
+
+# Google Gemini (alternative)
+GOOGLE_API_KEY=...
+```
+
+## 🔌 API Endpoints
+
+### WebSocket
+```
+WS /api/v1/ws
+```
+Real-time updates for conversations and intelligence.
+
+### Intelligence
+```
+GET    /api/v1/intelligence
+GET    /api/v1/intelligence/export?format=json|csv|stix
+PATCH  /api/v1/intelligence/{id}/validate
+```
+
+### Conversations
+```
+GET /api/v1/conversations
+GET /api/v1/conversations/{id}
+```
+
+See [API_EXAMPLES.md](API_EXAMPLES.md) for detailed usage examples.
+
+## 🏗️ Architecture Updates
+
+The system now follows a clean layered architecture:
+
+```
+Frontend (Next.js) 
+    ↓ REST API + WebSocket
+Backend (FastAPI)
+    ↓ Service Layer
+    ├─ LLM Providers (OpenAI/Gemini)
+    ├─ RAG Services (Policy Store + Retriever)
+    ├─ Context Services (WHOIS, URL Expansion)
+    ├─ Guardrails (Input/Output Filtering)
+    ├─ Detection (HMM, Rules, LLM Analysis)
+    └─ Metrics (IDR, IDS, Efficiency)
+    ↓ Data Layer
+    ├─ PostgreSQL (Primary Storage)
+    └─ Redis (Cache)
+```
+
