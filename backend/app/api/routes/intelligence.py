@@ -1,12 +1,18 @@
 """Intelligence API routes."""
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Response, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 from datetime import datetime
+from uuid import UUID
 import json
 import io
 import csv
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.db.database import get_db
+from app.services.database_service import DatabaseService
+from app.models.intelligence import ArtifactType
 
 router = APIRouter()
 
@@ -19,78 +25,94 @@ class IntelligenceArtifact(BaseModel):
     value: str
     confidence: float
     extracted_at: datetime
+    validated: bool
 
 
 @router.get("", response_model=List[IntelligenceArtifact])
 async def get_intelligence(
-    artifact_type: str = None,
-    min_confidence: float = 0.0
+    artifact_type: Optional[str] = None,
+    min_confidence: float = 0.0,
+    limit: int = 100,
+    offset: int = 0,
+    session: AsyncSession = Depends(get_db)
 ):
     """
     Get all extracted intelligence artifacts.
     
     Query parameters:
-    - artifact_type: Filter by type (upi_id, bank_account, phone, url, email)
+    - artifact_type: Filter by type (UPI_ID, BANK_ACCOUNT, PHONE, URL, EMAIL, IFSC_CODE)
     - min_confidence: Minimum confidence score
+    - limit: Maximum number of results
+    - offset: Pagination offset
     """
-    from app.api.routes.messages import active_conversations
+    db = DatabaseService(session)
     
-    artifacts = []
-    artifact_id = 0
+    # Parse artifact_type filter
+    artifact_filter = None
+    if artifact_type:
+        try:
+            artifact_filter = ArtifactType[artifact_type.upper()]
+        except KeyError:
+            pass  # Skip invalid types
     
-    for conv_id, conv_data in active_conversations.items():
-        state = conv_data["state"]
-        
-        # Extract all intelligence types
-        for intel_type, values in state.intelligence_extracted.items():
-            for value in values:
-                # Apply filters
-                if artifact_type and intel_type != artifact_type:
-                    continue
-                
-                # Confidence score (simplified)
-                confidence = 0.8
-                
-                if confidence >= min_confidence:
-                    artifacts.append(IntelligenceArtifact(
-                        id=f"intel-{artifact_id}",
-                        conversation_id=conv_id,
-                        artifact_type=intel_type,
-                        value=value,
-                        confidence=confidence,
-                        extracted_at=state.last_activity
-                    ))
-                    artifact_id += 1
+    # Get intelligence from database
+    intelligence = await db.get_intelligence(
+        artifact_type=artifact_filter,
+        limit=limit,
+        offset=offset
+    )
     
-    return artifacts
+    # Filter by confidence and build response
+    result = []
+    for intel in intelligence:
+        if intel.confidence >= min_confidence:
+            result.append(IntelligenceArtifact(
+                id=str(intel.id),
+                conversation_id=str(intel.conversation_id),
+                artifact_type=intel.artifact_type.value,
+                value=intel.value,
+                confidence=intel.confidence,
+                extracted_at=intel.extracted_at,
+                validated=intel.validated
+            ))
+    
+    return result
 
 
 @router.get("/export")
-async def export_intelligence(format: str = "json"):
+async def export_intelligence(
+    format: str = "json",
+    session: AsyncSession = Depends(get_db)
+):
     """
     Export intelligence data in various formats.
     
     Query parameters:
     - format: Export format (json or csv)
     """
-    from app.api.routes.messages import active_conversations
+    db = DatabaseService(session)
     
-    # Collect all intelligence
+    # Get all intelligence with conversation info
+    intelligence = await db.get_intelligence(limit=10000)
+    
+    # Collect all intelligence data
     intelligence_data = []
     
-    for conv_id, conv_data in active_conversations.items():
-        state = conv_data["state"]
+    for intel in intelligence:
+        # Get conversation details
+        conversation = await db.get_conversation(intel.conversation_id)
         
-        for intel_type, values in state.intelligence_extracted.items():
-            for value in values:
-                intelligence_data.append({
-                    "conversation_id": conv_id,
-                    "scammer_identifier": state.scammer_identifier,
-                    "scam_type": state.scam_type,
-                    "artifact_type": intel_type,
-                    "value": value,
-                    "extracted_at": state.last_activity.isoformat()
-                })
+        intelligence_data.append({
+            "id": str(intel.id),
+            "conversation_id": str(intel.conversation_id),
+            "scammer_identifier": conversation.scammer_identifier if conversation else "unknown",
+            "scam_type": conversation.scam_type if conversation else "unknown",
+            "artifact_type": intel.artifact_type.value,
+            "value": intel.value,
+            "confidence": intel.confidence,
+            "validated": intel.validated,
+            "extracted_at": intel.extracted_at.isoformat()
+        })
     
     if format == "csv":
         # Generate CSV
