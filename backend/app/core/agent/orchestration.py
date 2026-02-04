@@ -217,7 +217,7 @@ class ExtractionAgent:
         # Extract UPI IDs
         upis = re.findall(r'\b[\w\.-]+@[\w]+\b', message)
         for upi in upis:
-            if '@' in upi and not '.' in upi.split('@')[1]:
+            if '@' in upi and '.' not in upi.split('@')[1]:
                 artifacts.append({
                     "type": "UPI_ID",
                     "value": upi,

@@ -1,5 +1,5 @@
 """Safety-aware utility function for decision making."""
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass
 
 
@@ -208,9 +208,9 @@ class SafetyAwareUtility:
     
     def select_best_response(
         self,
-        candidates: list[str],
+        candidates: List[str],
         context: Dict[str, Any]
-    ) -> tuple[str, Dict[str, float]]:
+    ) -> Tuple[str, Dict[str, float]]:
         """
         Select best response from candidates using utility function.
         

@@ -1,5 +1,5 @@
 """Dialogue State Tracking (DST) for conversation management."""
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
