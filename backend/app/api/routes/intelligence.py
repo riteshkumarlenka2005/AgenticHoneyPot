@@ -125,12 +125,14 @@ async def export_intelligence(
     # Get all intelligence
     intelligence = await IntelligenceService.list_intelligence(db, limit=10000)
     
-    # Collect all intelligence data
+    # Collect all intelligence data and conversations
     intelligence_data = []
+    conversations_dict = {}
     
     for intel in intelligence:
         # Get conversation details
         conversation = await ConversationService.get_by_id(db, intel.conversation_id)
+        conversations_dict[str(intel.conversation_id)] = conversation
         
         intelligence_data.append({
             "id": str(intel.id),
@@ -158,8 +160,29 @@ async def export_intelligence(
             headers={"Content-Disposition": "attachment; filename=intelligence.csv"}
         )
     elif format == "stix":
-        # TODO: Implement STIX 2.1 format export
-        raise HTTPException(status_code=501, detail="STIX format not yet implemented")
+        # Generate STIX 2.1 format
+        from app.services.stix.formatter import stix_formatter
+        
+        stix_data = stix_formatter.intelligence_to_stix(intelligence, conversations_dict)
+        
+        return Response(
+            content=json.dumps(stix_data, indent=2),
+            media_type="application/stix+json",
+            headers={"Content-Disposition": "attachment; filename=intelligence.stix.json"}
+        )
+            headers={"Content-Disposition": "attachment; filename=intelligence.csv"}
+        )
+    elif format == "stix":
+        # Generate STIX 2.1 format
+        from app.services.stix.formatter import stix_formatter
+        
+        stix_data = stix_formatter.intelligence_to_stix(intelligence, conversations_dict)
+        
+        return Response(
+            content=json.dumps(stix_data, indent=2),
+            media_type="application/stix+json",
+            headers={"Content-Disposition": "attachment; filename=intelligence.stix.json"}
+        )
     else:
         # Return JSON
         return intelligence_data
